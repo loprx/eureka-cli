@@ -1,0 +1,25 @@
+# Multi-stage build for static musl binary
+# Force amd64 platform so musl-gcc can target x86_64 properly
+FROM --platform=linux/amd64 rust:1.95-bookworm AS builder
+
+# Install musl toolchain
+RUN apt-get update && \
+    apt-get install -y musl-tools && \
+    rm -rf /var/lib/apt/lists/*
+
+# Add musl target
+RUN rustup target add x86_64-unknown-linux-musl
+
+WORKDIR /build
+
+# Copy everything and build
+COPY Cargo.toml Cargo.lock ./
+COPY src ./src
+RUN cargo build --release --target x86_64-unknown-linux-musl && \
+    strip target/x86_64-unknown-linux-musl/release/eureka-cli
+
+# Minimal runtime image (optional, for testing)
+FROM alpine:latest AS runtime
+COPY --from=builder /build/target/x86_64-unknown-linux-musl/release/eureka-cli /usr/local/bin/
+ENTRYPOINT ["eureka-cli"]
+CMD ["--help"]

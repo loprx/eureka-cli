@@ -1,0 +1,47 @@
+# Eureka CLI Configuration Example
+# Copy to ~/.config/eureka-cli/config.yaml
+
+# Server configurations
+server:
+  # Default server to use
+  default: local
+
+  # Named server configurations
+  servers:
+    local:
+      url: http://localhost:8761/eureka
+      description: Local development server
+
+    test1:
+      url: http://eureka-test-1.example.com:8761/eureka
+      description: Test environment server 1
+
+    test2:
+      url: http://eureka-test-2.example.com:8761/eureka
+      description: Test environment server 2
+
+    staging:
+      url: https://eureka-staging.example.com/eureka
+      description: Staging environment
+
+    prod:
+      url: https://eureka.example.com/eureka
+      description: Production environment
+
+  # Connection timeout in seconds
+  timeout: 30
+
+  # Retry configuration
+  retry:
+    max_attempts: 3
+    backoff_ms: 1000
+
+# Output configuration
+output:
+  format: table  # json, yaml, table
+  color: auto    # auto, always, never
+
+# Logging configuration
+logging:
+  level: info    # trace, debug, info, warn, error
+  file: null     # Optional log file path

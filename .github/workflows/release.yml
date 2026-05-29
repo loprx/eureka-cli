@@ -1,0 +1,144 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  RUSTFLAGS: "-D warnings"
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux x86_64 — static musl, runs on any glibc 2.17+ host
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+            asset: eureka-cli-linux-amd64
+            cargo: cargo
+            setup: |
+              sudo apt-get update -qq
+              sudo apt-get install -y --no-install-recommends musl-tools
+
+          # Linux ARM64 — static musl, cross-compiled with GCC aarch64-linux-musl
+          - target: aarch64-unknown-linux-musl
+            os: ubuntu-latest
+            asset: eureka-cli-linux-arm64
+            cargo: cargo
+            setup: |
+              sudo apt-get update -qq
+              sudo apt-get install -y --no-install-recommends gcc-aarch64-linux-gnu
+              echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=aarch64-linux-gnu-gcc" >> "$GITHUB_ENV"
+              echo "CC_aarch64_unknown_linux_musl=aarch64-linux-gnu-gcc" >> "$GITHUB_ENV"
+
+          # macOS Apple Silicon (native runner on macos-14+)
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            asset: eureka-cli-darwin-arm64
+            cargo: cargo
+            setup: ""
+
+          # macOS Intel (cross from Apple Silicon runner)
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            asset: eureka-cli-darwin-amd64
+            cargo: cargo
+            setup: ""
+
+          # Windows x86_64
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            asset: eureka-cli-windows-amd64.exe
+            cargo: cargo
+            setup: ""
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache cargo registry & target
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Platform setup
+        if: matrix.setup != ''
+        shell: bash
+        run: ${{ matrix.setup }}
+
+      - name: Build
+        shell: bash
+        run: ${{ matrix.cargo }} build --release --target ${{ matrix.target }}
+
+      - name: Strip & rename (unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          BIN="target/${{ matrix.target }}/release/eureka-cli"
+          # aarch64 binaries built with cross linker can't be stripped by host strip
+          if [[ "${{ matrix.target }}" == "aarch64-unknown-linux-musl" ]]; then
+            aarch64-linux-gnu-strip "$BIN" || true
+          else
+            strip "$BIN" || true
+          fi
+          cp "$BIN" "${{ matrix.asset }}"
+
+      - name: Rename (windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: cp "target/${{ matrix.target }}/release/eureka-cli.exe" "${{ matrix.asset }}"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: ${{ matrix.asset }}
+          retention-days: 7
+          if-no-files-found: error
+
+  release:
+    name: Publish release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Flatten artifact tree
+        run: |
+          mkdir -p dist
+          find artifacts -type f -exec mv {} dist/ \;
+          ls -la dist/
+
+      - name: Generate SHA256 checksums
+        run: |
+          cd dist
+          for f in *; do
+            sha256sum "$f" > "$f.sha256"
+          done
+          ls -la
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+          fail_on_unmatched_files: true

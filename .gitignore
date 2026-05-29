@@ -1,0 +1,37 @@
+# Rust
+target/
+Cargo.lock
+**/*.rs.bk
+*.pdb
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Config
+.eureka-cli/
+*.log
+
+# Test outputs
+tests/output/
+*.output
+
+# Build artifacts
+dist/
+build/
+*.deb
+*.rpm
+*.tar.gz
+*.zip
+
+# Local-only deployment and testing assets
+/scripts/
+/docker/
+tests/
+eureka-server
+.claude
+.ignore/

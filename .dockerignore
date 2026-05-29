@@ -1,0 +1,23 @@
+# Ignore build artifacts and large directories
+target/
+.git/
+.github/
+docker/
+scripts/
+tests/
+docs/
+*.md
+!README.md
+!Cargo.toml
+!Cargo.lock
+
+# Ignore IDE and OS files
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Ignore test and example data
+fixtures/
+*.log

@@ -1,0 +1,64 @@
+[package]
+name = "eureka-cli"
+version = "0.1.0"
+edition = "2021"
+authors = ["loprx"]
+description = "A cross-platform CLI tool for interacting with Netflix Eureka service registry"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/loprx/eureka-cli"
+keywords = ["eureka", "service-discovery", "microservices", "cli"]
+categories = ["command-line-utilities", "network-programming"]
+readme = "README.md"
+
+[dependencies]
+# CLI framework
+clap = { version = "4.5", features = ["derive", "env", "cargo"] }
+
+# HTTP client
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+tokio = { version = "1.40", features = ["rt-multi-thread", "macros"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+serde_yaml = "0.9"
+
+# Error handling
+thiserror = "1.0"
+
+# Async trait support
+async-trait = "0.1"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+
+# Configuration
+dirs = "5.0"
+
+# Output formatting
+comfy-table = "7.1"
+colored = "2.1"
+
+[dev-dependencies]
+# Testing
+chrono = "0.4"
+tokio-test = "0.4"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"
+
+[profile.dev]
+opt-level = 0
+
+[[bin]]
+name = "eureka-cli"
+path = "src/main.rs"
+
+[lib]
+name = "eureka_cli"
+path = "src/lib.rs"
