@@ -30,16 +30,13 @@ jobs:
               sudo apt-get update -qq
               sudo apt-get install -y --no-install-recommends musl-tools
 
-          # Linux ARM64 — static musl, cross-compiled with GCC aarch64-linux-musl
+          # Linux ARM64 — static musl, cross-compiled with proper musl toolchain
           - target: aarch64-unknown-linux-musl
             os: ubuntu-latest
             asset: eureka-cli-linux-arm64
             cargo: cargo
-            setup: |
-              sudo apt-get update -qq
-              sudo apt-get install -y --no-install-recommends gcc-aarch64-linux-gnu
-              echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=aarch64-linux-gnu-gcc" >> "$GITHUB_ENV"
-              echo "CC_aarch64_unknown_linux_musl=aarch64-linux-gnu-gcc" >> "$GITHUB_ENV"
+            use_cross_toolchain: true
+            setup: ""
 
           # macOS Apple Silicon (native runner on macos-14+)
           - target: aarch64-apple-darwin
@@ -70,6 +67,12 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
+      - name: Setup musl cross-toolchain
+        if: matrix.use_cross_toolchain
+        uses: taiki-e/setup-cross-toolchain-action@v1
+        with:
+          target: ${{ matrix.target }}
+
       - name: Cache cargo registry & target
         uses: Swatinem/rust-cache@v2
         with:
@@ -89,9 +92,9 @@ jobs:
         shell: bash
         run: |
           BIN="target/${{ matrix.target }}/release/eureka-cli"
-          # aarch64 binaries built with cross linker can't be stripped by host strip
+          # taiki-e/setup-cross-toolchain-action exposes ${target}-strip on PATH
           if [[ "${{ matrix.target }}" == "aarch64-unknown-linux-musl" ]]; then
-            aarch64-linux-gnu-strip "$BIN" || true
+            "${{ matrix.target }}-strip" "$BIN" || true
           else
             strip "$BIN" || true
           fi
