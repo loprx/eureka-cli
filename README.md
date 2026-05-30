@@ -37,6 +37,12 @@ Designed for places where the Eureka Dashboard is unreachable:
 
 ## Install
 
+### Homebrew (macOS / Linux)
+
+```bash
+brew install loprx/tap/eureka-cli
+```
+
 ### Pre-built binaries
 
 Pick from [releases](https://github.com/loprx/eureka-cli/releases). The Linux ones are static-pie musl, run on any glibc 2.17+ or musl distro.

@@ -37,6 +37,12 @@ v0.2 把这个项目重新定位为 **Eureka 的 kubectl**:复用大家从 `kube
 
 ## 安装
 
+### Homebrew (macOS / Linux)
+
+```bash
+brew install loprx/tap/eureka-cli
+```
+
 ### 预编译二进制
 
 从 [releases](https://github.com/loprx/eureka-cli/releases) 选一个。Linux 版本是 static-pie musl,任何 glibc 2.17+ 或 musl 发行版都能直接跑。
