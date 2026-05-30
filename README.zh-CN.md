@@ -6,35 +6,43 @@
 
 [English](README.md) | 简体中文
 
-一个独立的、静态链接的 Netflix / Spring Cloud Eureka 命令行工具。单二进制、零 JVM、零运行时依赖,适用于只能投递二进制、无法暴露端口的环境。
+Netflix / Spring Cloud Eureka 的 `kubectl`。单文件静态二进制,无 JVM、无运行时,专为"能放二进制但不能开端口、不能开浏览器"的环境设计。
+
+![demo](assets/demo.gif)
+
+## v0.2 新增
+
+v0.2 把这个项目重新定位为 **Eureka 的 kubectl**:复用大家从 `kubectl`、`docker`、`helm` 已有的运维肌肉记忆,解决"实例几百个,只想快速找出坏的那个"的痛点。
+
+- **`-l/--selector`** — 按任意字段过滤,支持嵌套 metadata: `-l status=UP,metadata.version=v2`
+- **`-o wide`** — 多列输出(instance 加 APP/VIP/METADATA 列;app 加 UP/DOWN 计数)
+- **`--sort-by`** — 按 status / ip / 任意字段路径排序
+- **`unhealthy`** — apps 和 instances 都有的快捷子命令,等价于 `-l 'status!=UP'`
+- **`describe`** — kubectl 风格分组视图(Identity / Status / Network / Lease / DataCenter / Metadata / Timestamps)
+- **`-o jsonpath=...`** — 适合管道: `eureka-cli -o 'jsonpath=$.instances[*].ipAddr' instances ls | xargs ...`
+- **`-w/--watch`** — 实时刷新,kubectl `-w` 心智,Ctrl+C 退出
+- **kubectl 风格表格** — 无框线、空格对齐,同屏显示更多行
+- **`completion`** — `eureka-cli completion {bash,zsh,fish,powershell}`
+- **`config`** — kubeconfig 风格,`servers` 转为 deprecated 别名(v0.4 移除)
 
 ## 适用场景
 
 为 Eureka Dashboard 不可达的环境设计:
 
-- 无公网环境(内网隔离 / 气隙网络)
-- 无法暴露 Eureka Dashboard 端口
-- 仅 SSH 可访问的目标机器
-- K8s Pod 内运维(没浏览器、不方便 port-forward)
-- 堡垒机 / 跳板机场景
-
-## 为什么需要它
-
-当你只能在主机上放一个二进制、无法暴露 Eureka 端口、不能跑完整 JVM、shell 脚本又显得脆弱时,`eureka-cli` 用一个约 4 MB 的 ELF 文件就能完成全部生命周期调用(注册 / 心跳 / 状态 / 元数据 / 注销)和读查询。
-
-已验证兼容:
-- Netflix Eureka 1.x
-- Spring Cloud Netflix Eureka(Boot 2.7 / Spring Cloud 2021)
-- Spring Cloud Netflix Eureka(Boot 3.3 / Spring Cloud 2023)
+- 没有公网访问(气隙网络 / 内网专用)
+- Eureka Dashboard 端口对外封闭
+- 目标机只能 SSH
+- 在 K8s Pod 里执行操作(没浏览器、不想 port-forward)
+- 跳板机 / 堡垒机环境
 
 ## 安装
 
 ### 预编译二进制
 
-从 [releases](https://github.com/loprx/eureka-cli/releases) 选一个。Linux 版本是 static-pie musl,在任何 glibc 2.17+ 或 musl 发行版上都能跑。
+从 [releases](https://github.com/loprx/eureka-cli/releases) 选一个。Linux 版本是 static-pie musl,任何 glibc 2.17+ 或 musl 发行版都能直接跑。
 
 ```bash
-# Linux x86_64(从 CentOS 7 到 Ubuntu 24 都能跑)
+# Linux x86_64 (从 CentOS 7 到 Ubuntu 24 都能跑)
 curl -L -o eureka-cli https://github.com/loprx/eureka-cli/releases/latest/download/eureka-cli-linux-amd64
 chmod +x eureka-cli && sudo mv eureka-cli /usr/local/bin/
 
@@ -53,6 +61,19 @@ chmod +x eureka-cli && sudo mv eureka-cli /usr/local/bin/
 # Windows: 从 releases 页面下载 eureka-cli-windows-amd64.exe
 ```
 
+### Shell 自动补全
+
+```bash
+# zsh — 加到 fpath,例如:
+eureka-cli completion zsh > ~/.zsh/completions/_eureka-cli
+
+# bash
+eureka-cli completion bash > /etc/bash_completion.d/eureka-cli
+
+# fish
+eureka-cli completion fish > ~/.config/fish/completions/eureka-cli.fish
+```
+
 ### 源码构建
 
 需要 Rust 1.95+。
@@ -67,56 +88,140 @@ sudo install target/release/eureka-cli /usr/local/bin/
 ## 快速开始
 
 ```bash
-# 临时用法:每次手动指定 URL
+# 临时:每次手动指定 URL
 eureka-cli --server http://my-eureka:8761/eureka apps list
 
-# 持久化用法:存为命名配置并设为默认
-eureka-cli servers add prod http://my-eureka:8761/eureka --set-default
-eureka-cli apps list      # 自动用 'prod'
+# 或者保存为默认 profile
+eureka-cli config add prod http://my-eureka:8761/eureka --set-default
+eureka-cli apps list                    # 自动用 'prod'
+eureka-cli config use staging           # kubectl 风格切换上下文
 ```
 
-## 命令
+## 查询命令(kubectl 风格)
 
-所有命令都有 k8s 风格的简写,在 `--help` 中可见。
-
-| 命令 | 简写 | 作用 |
-|---|---|---|
-| `apps list` | `a ls` | 列出所有已注册的应用 |
-| `apps get <APP>` | `a get` | 显示某个应用及其实例 |
-| `apps instances <APP>` | `a i` | 列出某个应用的实例 |
-| `instances list` | `i ls` | 平铺列出所有应用下的所有实例 |
-| `instances get <ID>` | `i get` | 显示单个实例(用 `-a APP` 消除歧义) |
-| `register ...` | `reg` | 注册一个新实例 |
-| `heartbeat <APP> <ID>` | `hb` | 续约心跳 |
-| `status set <APP> <ID> <STATUS>` | `st set` | 覆盖状态(UP, DOWN, OUT_OF_SERVICE 等) |
-| `status remove <APP> <ID>` | `st rm` | 清除状态覆盖 |
-| `metadata set <APP> <ID> <K> <V>` | `meta set` | 更新一个元数据键 |
-| `vip get <VIP>` | — | 按 vipAddress 查询 |
-| `vip get-secure <SVIP>` | `vip gs` | 按 secureVipAddress 查询 |
-| `deregister <APP> <ID>` | `dereg` | 注销实例 |
-| `servers ...` | `s ...` | 管理命名服务器配置(详见下方) |
-
-输出格式适用于所有读命令:`--output table|json|yaml`(默认 table)。
-
-## 多服务器配置
-
-像 `kubectl` 的 context 一样,在多个 Eureka 集群之间切换,不用每次输 URL。
+v0.2 的核心。`apps` 和 `instances` 子命令上都生效。
 
 ```bash
-eureka-cli servers list                         # 显示所有配置
-eureka-cli servers current                      # 显示当前默认
-eureka-cli servers add prod http://eu/ -D       # -D 表示设为默认
-eureka-cli servers use staging                  # 切换默认
-eureka-cli servers remove old
+# 列表,kubectl 风格表格(无框线、易扫读)
+eureka-cli apps ls
+eureka-cli instances ls
+
+# 过滤 — 精确匹配,逗号 AND,支持嵌套 metadata
+eureka-cli instances ls -l status=UP
+eureka-cli instances ls -l 'status!=UP'                 # 只看坏的
+eureka-cli instances ls -l 'app=USER-SERVICE,metadata.version=v2'
+
+# 多列输出 — instance 上加 APP/VIP/METADATA 列;app 上加 UP/DOWN 计数
+eureka-cli instances ls -o wide
+eureka-cli apps ls -o wide
+
+# 按任意字段路径排序
+eureka-cli instances ls --sort-by status
+eureka-cli instances ls --sort-by ip_addr
+
+# "哪些是坏的" 快捷
+eureka-cli apps unhealthy
+eureka-cli instances unhealthy
+
+# 多分组详情(kubectl describe 风格)
+eureka-cli apps describe USER-SERVICE
+eureka-cli instances describe -a USER-SERVICE 10.0.0.1:user-service:8080
+
+# JSONPath — 给 shell 脚本和管道用
+eureka-cli -o 'jsonpath=$.instances[*].ipAddr' instances ls
+eureka-cli -o 'jsonpath=$.instances[*].instanceId' -l 'status!=UP' instances ls \
+  | xargs -I{} echo "would page on-call about {}"
+
+# Watch 模式 — kubectl -w 语义,Ctrl+C 退出
+eureka-cli instances ls -w
+eureka-cli instances ls -w --watch-interval 5
 ```
 
-`--server` 参数的解析顺序:
+> **关于 `app=` selector:** Eureka 服务端会把 application name 全转大写,所以 `-l app=foo` 不会命中已注册的 "FOO"。要用真实存储值(`-l app=FOO`)。其他字段保留原始大小写。
 
-1. 如果以 `http://` 或 `https://` 开头,直接当作 URL 使用。
-2. 否则在配置中查找命名服务器。
-3. 如果 `--server` 和 `EUREKA_SERVER` 都没设置,使用默认服务器。
+## 生命周期(写操作)
 
-配置文件:`~/.config/eureka-cli/config.yaml`(首次 `servers add` 时自动创建)。
+v0.1 原有的能力 — register/heartbeat/status/metadata/deregister 流程,适合 K8s pod、跳板机、任何只能放二进制的环境。
+
+```bash
+ID=$(hostname)-$(date +%s)
+
+eureka-cli register \
+  --app MY-SERVICE --instance-id "$ID" \
+  --hostname "$(hostname)" --ip "$(hostname -I | awk '{print $1}')" \
+  --port 8080 --vip-address my-service \
+  --metadata version=1.0.0 --metadata env=prod
+
+# 持续续约
+while true; do eureka-cli heartbeat MY-SERVICE "$ID"; sleep 25; done &
+
+eureka-cli status set MY-SERVICE "$ID" OUT_OF_SERVICE   # 流量摘除
+eureka-cli metadata set MY-SERVICE "$ID" canary true    # 改 metadata
+eureka-cli deregister MY-SERVICE "$ID"                  # 注销
+```
+
+
+## 命令一览
+
+所有命令都有 kubectl 风格的别名,完整列表见 `--help`。
+
+| 命令 | 别名 | 作用 |
+|---|---|---|
+| `apps list` | `a ls` | 列出所有注册的应用 |
+| `apps get <APP>` | — | 显示单个应用 + 它的实例 |
+| `apps describe <APP>` | `a desc` | 应用的多分组详情 |
+| `apps instances <APP>` | `a i` | 列出某个应用的实例 |
+| `apps unhealthy` | — | 含有非 UP 实例的应用 |
+| `instances list` | `i ls` | 平铺所有应用的实例 |
+| `instances get <ID>` | — | 显示单个实例(用 `-a APP` 消歧义) |
+| `instances describe <ID>` | `i desc` | 实例的多分组详情 |
+| `instances unhealthy` | — | 状态不是 UP 的实例 |
+| `register …` | `reg` | 注册一个新实例 |
+| `heartbeat <APP> <ID>` | `hb` | 续约 |
+| `status set <APP> <ID> <STATUS>` | `st set` | 覆盖状态(UP, DOWN, OUT_OF_SERVICE…) |
+| `status remove <APP> <ID>` | `st rm` | 清除状态覆盖 |
+| `metadata set <APP> <ID> <K> <V>` | `meta set` | 更新一个 metadata 键 |
+| `vip get <VIP>` | — | 按 vipAddress 查找 |
+| `vip get-secure <SVIP>` | `vip gs` | 按 secure vipAddress 查找 |
+| `deregister <APP> <ID>` | `dereg` | 注销实例 |
+| `config …` | — | 管理服务器 profile(kubeconfig 风格) |
+| `servers …` | `s …` | `config` 的 deprecated 别名,v0.4 移除 |
+| `completion <SHELL>` | — | 输出 shell 自动补全脚本 |
+| `version` | `v` | 显示 CLI 版本 |
+
+### 全局 flag
+
+| Flag | 作用 |
+|---|---|
+| `-s, --server <NAME-OR-URL>` | 选择服务器 profile,或直接传 URL |
+| `-o, --output <FMT>` | `table`(默认) / `wide` / `json` / `yaml` / `jsonpath=<expr>` |
+| `-l, --selector <EXPR>` | 过滤,例如 `status=UP,metadata.version=v2`(支持 `=` 和 `!=`,逗号 AND) |
+| `-w, --watch` | 按间隔重渲染,直到 Ctrl+C |
+| `--watch-interval <SECS>` | watch 周期,默认 `2` |
+| `--sort-by <FIELD>` | 按任意字段路径排序(如 `status`、`ip_addr`) |
+| `--timeout <SECS>` | HTTP 请求超时 |
+| `-v, --verbose` / `-q, --quiet` | 日志等级 |
+
+
+## 服务器 profile(`config`,kubeconfig 风格)
+
+不同 Eureka 集群之间切换,免去每次输 URL。
+
+```bash
+eureka-cli config list                         # 列出全部
+eureka-cli config current                      # 当前默认
+eureka-cli config add prod http://eu/ -D       # -D = 同时设为默认
+eureka-cli config use staging                  # 切换默认
+eureka-cli config remove old
+```
+
+`--server` 解析顺序:
+
+1. 以 `http://` / `https://` 开头 → 直接当 URL 用
+2. 否则在 config 里查命名 server
+3. 若 `--server` 和 `EUREKA_SERVER` 都没设 → 用默认 server
+
+配置文件:`~/.config/eureka-cli/config.yaml`(首次 `config add` 时自动建)。
 
 ```yaml
 server:
@@ -139,99 +244,112 @@ logging:
   level: info
 ```
 
-`servers add` 时会拒绝缺少 `http(s)://` 的 URL;如果加载时发现旧版遗留的非法配置,会给出可直接复制的修复提示。
+> 老的 `servers …` 命令仍然能用,但会在 stderr 打一行 deprecation 提示。v0.4 会移除。
 
 ## 示例
 
-### 完整生命周期
+### "现在哪些是坏的?"
 
 ```bash
-ID=$(hostname)-$(date +%s)
+# 只看不健康的,kubectl 风格 — 5 个还是 500 个实例都好用
+eureka-cli instances unhealthy -o wide
 
-eureka-cli reg \
-  --app MY-SERVICE --instance-id "$ID" \
-  --hostname "$(hostname)" --ip "$(hostname -I | awk '{print $1}')" \
-  --port 8080 --vip-address my-service \
-  --metadata version=1.0.0 --metadata env=prod
+# 同样,但用手写 selector 形式
+eureka-cli instances ls -l 'status!=UP' -o wide
 
-# 持续续约
-while true; do eureka-cli hb MY-SERVICE "$ID"; sleep 25; done &
-
-eureka-cli st set MY-SERVICE "$ID" OUT_OF_SERVICE   # 流量摘除
-eureka-cli dereg MY-SERVICE "$ID"                   # 注销
+# 同样,实时看
+eureka-cli instances unhealthy -w
 ```
 
-### 配合 `--output json` 做脚本
+### "找出 us-east-1 区所有 v2 版的 user-service"
 
 ```bash
-# 把所有 UP 状态的实例平铺成 "<app> <ip>:<port>"
-eureka-cli --output json instances list \
-  | jq -r '.[] | select(.status == "UP") | "\(.app) \(.ipAddr):\(.port["$"])"'
+eureka-cli instances ls \
+  -l 'app=USER-SERVICE,metadata.version=v2,metadata.zone=us-east-1' \
+  -o wide
 ```
 
-### 在 dev / staging / prod 之间切换
+### "把每个 DOWN 状态的实例报警给 on-call"
+
+```bash
+eureka-cli -o 'jsonpath=$.instances[*].instanceId' \
+  -l 'status=DOWN' instances ls \
+  | xargs -I{} ./notify-oncall.sh {}
+```
+
+### "盯着发布滚动"
+
+```bash
+eureka-cli instances ls -l 'app=USER-SERVICE' -w --watch-interval 2
+```
+
+### 在 dev / staging / prod 之间循环
 
 ```bash
 for srv in dev staging prod; do
   echo "=== $srv ==="
-  eureka-cli --server "$srv" apps list
+  eureka-cli --server "$srv" apps unhealthy
 done
 ```
+
 
 ## 环境变量
 
 | 变量 | 作用 |
 |---|---|
-| `EUREKA_SERVER` | 等同 `--server`(URL 或命名) |
-| `RUST_LOG` | tracing 过滤器,如 `eureka_cli=debug` |
+| `EUREKA_SERVER` | 等同于 `--server`(URL 或命名 profile) |
+| `RUST_LOG` | tracing 过滤器,例如 `eureka_cli=debug` |
 
 ## 兼容性
 
-生产环境验证矩阵:5 台客户端 × 4 个服务器版本 × 20 个命令 = 400 次调用全部通过。
+端到端矩阵测试:6 台客户端 × 3 个 Eureka server × 每轮 26 项检查 = **468 项检查全过**。
 
-| 客户端 OS / glibc | Eureka 1.x | Spring Cloud 2021 | Spring Cloud 2023 |
+| 客户端 OS / glibc | Eureka 1.10 | Eureka 2.0 | Spring Cloud(生产) |
 |---|---|---|---|
-| CentOS 7(glibc 2.17) | ✅ | ✅ | ✅ |
-| CentOS 7(glibc 2.31) | ✅ | ✅ | ✅ |
-| Ubuntu 24.04(glibc 2.39) | ✅ | ✅ | ✅ |
+| CentOS 7 (glibc 2.17) | ✅ | ✅ | ✅ |
+| Ubuntu 24.04 (glibc 2.39) | ✅ | ✅ | ✅ |
 
-Linux x86_64 二进制是 `static-pie linked`(musl),在任何 glibc 2.17+ 主机上都能跑,无额外依赖。
+Linux x86_64 二进制是 `static-pie linked`(musl),任何 glibc 2.17+ 主机都能跑,不需要额外依赖。
 
 ## 构建
 
-正式版二进制由 GitHub Actions 的 `release.yml` 工作流在 tag 推送时构建。本地构建方法:
+发布版二进制由 GitHub Actions 在 tag push 时自动构建。本地构建:
 
 ```bash
-# 原生构建(macOS / Linux / Windows)
+# 原生(macOS / Linux / Windows)
 cargo build --release
 
 # 在 Apple Silicon 上构建 Linux x86_64 musl(用 Docker)
-DOCKER_BUILDKIT=1 docker build \
-  --platform linux/amd64 \
-  --target builder \
-  -t eureka-cli-builder:musl \
-  -f Dockerfile.musl .
-docker create --name extract eureka-cli-builder:musl
-docker cp extract:/build/target/x86_64-unknown-linux-musl/release/eureka-cli ./
-docker rm extract
+./scripts/build-musl.sh
 ```
 
-`Dockerfile.musl` 强制 `--platform=linux/amd64`,让宿主 musl-gcc 与目标架构对齐;否则 ARM64 musl-gcc 会拒绝 `ring` 构建脚本生成的 `-m64` 参数。
+`Dockerfile.musl` 强制 `--platform=linux/amd64`,这样宿主的 musl-gcc 才能匹配目标架构 — 否则 ARM64 的 musl-gcc 会拒绝 `ring` 构建脚本里发的 `-m64` flag。
 
 ## 发布
 
-打 tag 并推送:
+打 tag 推送即可:
 
 ```bash
 git tag v0.2.0
 git push origin v0.2.0
 ```
 
-GitHub Actions 会并行构建 5 个平台并创建带二进制附件的 release。
+GitHub Actions 会并行为 5 个平台构建,并把 binary 挂到 release 上。
+
+## 录制 demo GIF
+
+README 顶部的 demo GIF 由 `assets/demo.tape` 用 [VHS](https://github.com/charmbracelet/vhs) 生成:
+
+```bash
+brew install vhs ttyd ffmpeg
+NO_PROXY="10.0.0.0/8" vhs assets/demo.tape   # 输出 assets/demo.gif
+```
+
+`.tape` 脚本和 GIF 一起进 git,任何人都能对着自己的 Eureka 重新生成 demo。
 
 ## 许可证
 
 双许可,任选其一:
 
-- Apache License, Version 2.0([LICENSE-APACHE](LICENSE-APACHE))
-- MIT license([LICENSE-MIT](LICENSE-MIT))
+- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE))
+- MIT license ([LICENSE-MIT](LICENSE-MIT))
