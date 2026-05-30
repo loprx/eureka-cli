@@ -6,12 +6,15 @@
 use crate::cli::{format::OutputFormat, selector::Selector};
 use crate::error::{Error, Result};
 use crate::models::Instance;
+use std::time::Duration;
 
 #[derive(Debug)]
 pub struct QueryOptions<'a> {
     pub format: &'a OutputFormat,
     pub selector: Option<Selector>,
     pub sort_by: Option<String>,
+    pub watch: bool,
+    pub watch_interval: Duration,
 }
 
 impl<'a> QueryOptions<'a> {
@@ -19,6 +22,8 @@ impl<'a> QueryOptions<'a> {
         format: &'a OutputFormat,
         selector_expr: Option<&str>,
         sort_by: Option<String>,
+        watch: bool,
+        watch_interval_secs: u64,
     ) -> Result<Self> {
         let selector = selector_expr
             .map(Selector::parse)
@@ -28,6 +33,8 @@ impl<'a> QueryOptions<'a> {
             format,
             selector,
             sort_by,
+            watch,
+            watch_interval: Duration::from_secs(watch_interval_secs.max(1)),
         })
     }
 

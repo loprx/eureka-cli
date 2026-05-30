@@ -20,6 +20,17 @@ pub trait OutputFormatter {
     fn format_instances(&self, instances: &[Instance]) -> Result<String>;
     fn format_instance(&self, instance: &Instance) -> Result<String>;
     fn format_success(&self, message: &str) -> Result<String>;
+
+    /// Detailed multi-section view of a single instance (kubectl describe style).
+    /// Defaults to format_instance — JSON/YAML want the same structured payload.
+    fn format_describe_instance(&self, instance: &Instance) -> Result<String> {
+        self.format_instance(instance)
+    }
+
+    /// Detailed view of an application: header + describe each instance.
+    fn format_describe_application(&self, app: &Application) -> Result<String> {
+        self.format_application(app)
+    }
 }
 
 /// Build the formatter for the requested output format.
@@ -27,7 +38,8 @@ pub fn formatter_for(format: &OutputFormat) -> Box<dyn OutputFormatter> {
     match format {
         OutputFormat::Table => Box::new(TableFormatter { wide: false }),
         OutputFormat::Wide => Box::new(TableFormatter { wide: true }),
-        OutputFormat::Json | OutputFormat::JsonPath(_) => Box::new(JsonFormatter),
+        OutputFormat::Json => Box::new(JsonFormatter),
+        OutputFormat::JsonPath(expr) => Box::new(JsonPathFormatter { expr: expr.clone() }),
         OutputFormat::Yaml => Box::new(YamlFormatter),
     }
 }
@@ -261,6 +273,180 @@ impl OutputFormatter for TableFormatter {
     fn format_success(&self, message: &str) -> Result<String> {
         Ok(message.green().to_string())
     }
+
+    fn format_describe_instance(&self, instance: &Instance) -> Result<String> {
+        Ok(describe_instance(instance))
+    }
+
+    fn format_describe_application(&self, app: &Application) -> Result<String> {
+        let mut out = String::new();
+        out.push_str(&format!("Name:       {}\n", app.name.cyan()));
+        out.push_str(&format!("Instances:  {}\n", app.instance.len()));
+
+        let up = app
+            .instance
+            .iter()
+            .filter(|i| matches!(i.status, InstanceStatus::Up))
+            .count();
+        out.push_str(&format!("Healthy:    {}/{}\n", up, app.instance.len()));
+
+        for (idx, inst) in app.instance.iter().enumerate() {
+            out.push_str(&format!(
+                "\n--- Instance [{}/{}] ---\n",
+                idx + 1,
+                app.instance.len()
+            ));
+            out.push_str(&describe_instance(inst));
+        }
+        Ok(out)
+    }
+}
+
+/// kubectl describe-style multi-section view of one instance.
+/// Pure function: no I/O, deterministic, easy to unit-test.
+fn describe_instance(instance: &Instance) -> String {
+    let mut out = String::new();
+    let pad = 22;
+
+    // Identity
+    out.push_str(&format!("{}\n", "Identity:".bold()));
+    out.push_str(&format!(
+        "  {:pad$}{}\n",
+        "Instance ID:",
+        instance.instance_id,
+        pad = pad
+    ));
+    out.push_str(&format!(
+        "  {:pad$}{}\n",
+        "Application:",
+        instance.app,
+        pad = pad
+    ));
+    out.push_str(&format!(
+        "  {:pad$}{}\n",
+        "Hostname:",
+        instance.host_name,
+        pad = pad
+    ));
+    out.push_str(&format!(
+        "  {:pad$}{}\n",
+        "IP Address:",
+        instance.ip_addr,
+        pad = pad
+    ));
+
+    // Status
+    out.push_str(&format!("\n{}\n", "Status:".bold()));
+    out.push_str(&format!(
+        "  {:pad$}{}\n",
+        "Status:",
+        TableFormatter::status_cell(&instance.status),
+        pad = pad
+    ));
+    if let Some(overridden) = &instance.overriddenstatus {
+        out.push_str(&format!(
+            "  {:pad$}{}\n",
+            "Overridden:",
+            TableFormatter::status_cell(overridden),
+            pad = pad
+        ));
+    }
+    if let Some(action) = &instance.action_type {
+        out.push_str(&format!("  {:pad$}{}\n", "Action Type:", action, pad = pad));
+    }
+
+    // Network
+    out.push_str(&format!("\n{}\n", "Network:".bold()));
+    let port_str = instance
+        .port
+        .as_ref()
+        .map(|p| format!("{} (enabled={})", p.port, p.enabled))
+        .unwrap_or_else(|| "-".to_string());
+    out.push_str(&format!("  {:pad$}{}\n", "Port:", port_str, pad = pad));
+    out.push_str(&format!(
+        "  {:pad$}{} (enabled={})\n",
+        "Secure Port:",
+        instance.secure_port.port,
+        instance.secure_port.enabled,
+        pad = pad
+    ));
+    out.push_str(&format!(
+        "  {:pad$}{}\n",
+        "VIP Address:",
+        instance.vip_address,
+        pad = pad
+    ));
+    out.push_str(&format!(
+        "  {:pad$}{}\n",
+        "Secure VIP:",
+        instance.secure_vip_address,
+        pad = pad
+    ));
+    out.push_str(&format!(
+        "  {:pad$}{}\n",
+        "Home Page:",
+        instance.home_page_url.as_deref().unwrap_or("-"),
+        pad = pad
+    ));
+    out.push_str(&format!(
+        "  {:pad$}{}\n",
+        "Status Page:",
+        instance.status_page_url.as_deref().unwrap_or("-"),
+        pad = pad
+    ));
+    out.push_str(&format!(
+        "  {:pad$}{}\n",
+        "Health Check:",
+        instance.health_check_url.as_deref().unwrap_or("-"),
+        pad = pad
+    ));
+
+    // Lease
+    if let Some(lease) = &instance.lease_info {
+        out.push_str(&format!("\n{}\n", "Lease:".bold()));
+        let lease_json = serde_json::to_value(lease).unwrap_or(serde_json::Value::Null);
+        if let Some(map) = lease_json.as_object() {
+            for (k, v) in map {
+                out.push_str(&format!("  {:pad$}{}\n", format!("{}:", k), v, pad = pad));
+            }
+        }
+    }
+
+    // Data Center
+    out.push_str(&format!("\n{}\n", "DataCenter:".bold()));
+    out.push_str(&format!(
+        "  {:pad$}{:?}\n",
+        "Name:",
+        instance.data_center_info.name,
+        pad = pad
+    ));
+
+    // Metadata
+    if let Some(metadata) = &instance.metadata {
+        if !metadata.is_empty() {
+            out.push_str(&format!("\n{}\n", "Metadata:".bold()));
+            let mut keys: Vec<&String> = metadata.keys().collect();
+            keys.sort();
+            for k in keys {
+                if let Some(v) = metadata.get(k) {
+                    out.push_str(&format!("  {}: {}\n", k.cyan(), v));
+                }
+            }
+        }
+    }
+
+    // Timestamps (raw — Eureka returns them as nested {$: <ts>})
+    if instance.last_updated_timestamp.is_some() || instance.last_dirty_timestamp.is_some() {
+        out.push_str(&format!("\n{}\n", "Timestamps:".bold()));
+        if let Some(v) = &instance.last_updated_timestamp {
+            out.push_str(&format!("  {:pad$}{}\n", "Last Updated:", v, pad = pad));
+        }
+        if let Some(v) = &instance.last_dirty_timestamp {
+            out.push_str(&format!("  {:pad$}{}\n", "Last Dirty:", v, pad = pad));
+        }
+    }
+
+    out
 }
 
 // ---------------------------------------------------------------------------
@@ -318,6 +504,61 @@ impl OutputFormatter for YamlFormatter {
     fn format_success(&self, message: &str) -> Result<String> {
         let json = serde_json::json!({ "status": "success", "message": message });
         Ok(serde_yaml::to_string(&json)?)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// JsonPathFormatter — applies a JSONPath expression to the JSON view.
+// ---------------------------------------------------------------------------
+//
+// Mirrors `kubectl -o jsonpath=...`: serialize the resource to JSON, then
+// evaluate the expression. Single results print bare; arrays print one
+// element per line so the output stays pipe-friendly (xargs etc.).
+
+struct JsonPathFormatter {
+    expr: String,
+}
+
+impl JsonPathFormatter {
+    fn apply<T: serde::Serialize>(&self, value: &T) -> Result<String> {
+        use jsonpath_rust::JsonPath;
+        let json = serde_json::to_value(value)?;
+        let path = JsonPath::try_from(self.expr.as_str())
+            .map_err(|e| crate::error::Error::ConfigError(format!("invalid jsonpath: {}", e)))?;
+        let results = path.find_slice(&json);
+        let mut out = String::new();
+        for (i, jpv) in results.iter().enumerate() {
+            if i > 0 {
+                out.push('\n');
+            }
+            let v = jpv.clone().to_data();
+            match &v {
+                serde_json::Value::String(s) => out.push_str(s),
+                other => out.push_str(&other.to_string()),
+            }
+        }
+        Ok(out)
+    }
+}
+
+impl OutputFormatter for JsonPathFormatter {
+    fn format_applications(&self, apps: &ApplicationsWrapper) -> Result<String> {
+        self.apply(apps)
+    }
+    fn format_application(&self, app: &Application) -> Result<String> {
+        self.apply(app)
+    }
+    fn format_instances(&self, instances: &[Instance]) -> Result<String> {
+        // Wrap so users can write `$.instances[*].ipAddr` consistently.
+        let wrapped = serde_json::json!({ "instances": instances });
+        self.apply(&wrapped)
+    }
+    fn format_instance(&self, instance: &Instance) -> Result<String> {
+        self.apply(instance)
+    }
+    fn format_success(&self, message: &str) -> Result<String> {
+        let json = serde_json::json!({ "status": "success", "message": message });
+        self.apply(&json)
     }
 }
 

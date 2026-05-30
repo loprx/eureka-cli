@@ -3,6 +3,7 @@ pub mod format;
 pub mod output;
 pub mod query;
 pub mod selector;
+pub mod watch;
 
 use crate::client::EurekaClient;
 use crate::config::AppConfig;
@@ -86,6 +87,11 @@ pub enum Commands {
         #[command(subcommand)]
         command: commands::ServersCommands,
     },
+    /// Manage server configurations (kubectl/kubeconfig style)
+    Config {
+        #[command(subcommand)]
+        command: commands::ServersCommands,
+    },
     /// Register a new service instance
     #[command(visible_alias = "reg")]
     Register {
@@ -121,6 +127,12 @@ pub enum Commands {
         #[command(subcommand)]
         command: commands::VipCommands,
     },
+    /// Generate shell completion scripts
+    Completion {
+        /// Shell to generate completion for
+        #[arg(value_enum)]
+        shell: clap_complete::Shell,
+    },
     /// Show version information
     #[command(visible_alias = "v")]
     Version,
@@ -128,9 +140,17 @@ pub enum Commands {
 
 impl Cli {
     pub async fn execute(&self) -> Result<()> {
-        // Handle servers command separately (doesn't need client)
-        if let Commands::Servers { command } = &self.command {
-            return command.execute().await;
+        // Handle commands that don't need a client.
+        match &self.command {
+            Commands::Servers { command } => {
+                eprintln!(
+                    "Note: 'servers' is deprecated, use 'config' instead. Will be removed in v0.4."
+                );
+                return command.execute().await;
+            }
+            Commands::Config { command } => return command.execute().await,
+            Commands::Completion { shell } => return print_completion(*shell),
+            _ => {}
         }
 
         let config = AppConfig::load()?;
@@ -149,6 +169,8 @@ impl Cli {
                     &self.output,
                     self.selector.as_deref(),
                     self.sort_by.clone(),
+                    self.watch,
+                    self.watch_interval,
                 )?;
                 command.execute(&client, &opts).await
             }
@@ -157,10 +179,13 @@ impl Cli {
                     &self.output,
                     self.selector.as_deref(),
                     self.sort_by.clone(),
+                    self.watch,
+                    self.watch_interval,
                 )?;
                 command.execute(&client, &opts).await
             }
             Commands::Servers { .. } => unreachable!(), // Already handled above
+            Commands::Config { .. } => unreachable!(),  // Already handled above
             Commands::Register { args } => args.execute(&client).await,
             Commands::Deregister { args } => {
                 args.execute(&client, self.output.as_legacy_str()).await
@@ -173,6 +198,7 @@ impl Cli {
             Commands::Vip { command } => {
                 command.execute(&client, self.output.as_legacy_str()).await
             }
+            Commands::Completion { .. } => unreachable!(), // handled above
             Commands::Version => {
                 output::print_success(
                     &format!("eureka-cli {}", env!("CARGO_PKG_VERSION")),
@@ -182,4 +208,12 @@ impl Cli {
             }
         }
     }
+}
+
+fn print_completion(shell: clap_complete::Shell) -> Result<()> {
+    use clap::CommandFactory;
+    let mut cmd = Cli::command();
+    let bin_name = cmd.get_name().to_string();
+    clap_complete::generate(shell, &mut cmd, bin_name, &mut std::io::stdout());
+    Ok(())
 }
