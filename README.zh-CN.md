@@ -70,14 +70,30 @@ chmod +x eureka-cli && sudo mv eureka-cli /usr/local/bin/
 ### Shell 自动补全
 
 ```bash
-# zsh — 加到 fpath,例如:
+# zsh — 写脚本,再告诉 zsh 这个目录在哪
+mkdir -p ~/.zsh/completions
 eureka-cli completion zsh > ~/.zsh/completions/_eureka-cli
 
-# bash
-eureka-cli completion bash > /etc/bash_completion.d/eureka-cli
+# 一次性配置:在 ~/.zshrc 的 `compinit` 之前加这两行:
+#   fpath=(~/.zsh/completions $fpath)
+#   autoload -Uz compinit && compinit
+# 当前 shell 立即生效: exec zsh   (或开个新终端)
 
-# fish
+# bash
+eureka-cli completion bash | sudo tee /etc/bash_completion.d/eureka-cli >/dev/null
+# 重新加载: source /etc/bash_completion.d/eureka-cli   (或开新 shell)
+
+# fish — 目录默认在 fish 的补全路径上,不用额外配置
+mkdir -p ~/.config/fish/completions
 eureka-cli completion fish > ~/.config/fish/completions/eureka-cli.fish
+```
+
+shell 重新加载后,试试看:
+
+```bash
+eureka-cli <TAB>          # 列出所有子命令
+eureka-cli apps <TAB>     # list / get / describe / instances / unhealthy
+eureka-cli -<TAB>         # 全局 flag: -l / -o / -w / --sort-by ...
 ```
 
 ### 源码构建
@@ -341,17 +357,6 @@ git push origin v0.2.0
 ```
 
 GitHub Actions 会并行为 5 个平台构建,并把 binary 挂到 release 上。
-
-## 录制 demo GIF
-
-README 顶部的 demo GIF 由 `assets/demo.tape` 用 [VHS](https://github.com/charmbracelet/vhs) 生成:
-
-```bash
-brew install vhs ttyd ffmpeg
-NO_PROXY="10.0.0.0/8" vhs assets/demo.tape   # 输出 assets/demo.gif
-```
-
-`.tape` 脚本和 GIF 一起进 git,任何人都能对着自己的 Eureka 重新生成 demo。
 
 ## 许可证
 

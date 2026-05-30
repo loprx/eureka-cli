@@ -70,14 +70,30 @@ chmod +x eureka-cli && sudo mv eureka-cli /usr/local/bin/
 ### Shell completion
 
 ```bash
-# zsh — add to your fpath, e.g.
+# zsh — write the script, then make sure zsh knows about the dir.
+mkdir -p ~/.zsh/completions
 eureka-cli completion zsh > ~/.zsh/completions/_eureka-cli
 
-# bash
-eureka-cli completion bash > /etc/bash_completion.d/eureka-cli
+# Add this to ~/.zshrc *before* `compinit` runs (one-time):
+#   fpath=(~/.zsh/completions $fpath)
+#   autoload -Uz compinit && compinit
+# Reload current shell: exec zsh    (or open a new terminal)
 
-# fish
+# bash
+eureka-cli completion bash | sudo tee /etc/bash_completion.d/eureka-cli >/dev/null
+# Reload: source /etc/bash_completion.d/eureka-cli   (or open a new shell)
+
+# fish — directory is already on fish's completion path, no extra config needed.
+mkdir -p ~/.config/fish/completions
 eureka-cli completion fish > ~/.config/fish/completions/eureka-cli.fish
+```
+
+After reloading the shell, try:
+
+```bash
+eureka-cli <TAB>          # lists subcommands
+eureka-cli apps <TAB>     # list / get / describe / instances / unhealthy
+eureka-cli -<TAB>         # global flags: -l / -o / -w / --sort-by ...
 ```
 
 ### From source
@@ -342,17 +358,6 @@ git push origin v0.2.0
 ```
 
 GitHub Actions builds for all 5 platforms in parallel and creates a release with the binaries attached.
-
-## Recording the demo GIF
-
-The demo GIF at the top of this README is generated from `assets/demo.tape` using [VHS](https://github.com/charmbracelet/vhs):
-
-```bash
-brew install vhs ttyd ffmpeg
-NO_PROXY="10.0.0.0/8" vhs assets/demo.tape   # outputs assets/demo.gif
-```
-
-The `.tape` file is committed alongside the GIF, so anyone can regenerate the demo against their own Eureka.
 
 ## License
 
