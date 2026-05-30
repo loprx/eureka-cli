@@ -29,9 +29,11 @@ build/
 *.zip
 
 # Local-only deployment and testing assets
-/scripts/
 /docker/
 tests/
-eureka-server
 .claude
 .ignore/
+eureka-server/**/target/
+
+# AI 产物：CLAUDE.md 实体在 .ignore/，根目录是 symlink，两者都不进 git
+/CLAUDE.md

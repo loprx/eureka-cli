@@ -8,6 +8,16 @@ English | [简体中文](README.zh-CN.md)
 
 A standalone, statically-linked CLI for Netflix / Spring Cloud Eureka. Single binary, no JVM, no runtime, works in environments where you can ship a binary but not expose ports.
 
+## Scenarios
+
+Designed for environments where the Eureka Dashboard is unreachable:
+
+- No public network access (air-gapped / internal-only hosts)
+- Cannot expose Eureka Dashboard port externally
+- SSH-only access to target machines
+- Operations inside K8s Pods (no browser, no port-forward)
+- Bastion / jump-host environments
+
 ## Why
 
 When you can drop a binary on a host but can't expose Eureka, can't run a full JVM, and shell scripts feel fragile — `eureka-cli` does the lifecycle calls (register / heartbeat / status / metadata / deregister) and read queries from one ~4 MB ELF.
