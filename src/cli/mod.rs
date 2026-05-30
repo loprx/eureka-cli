@@ -1,11 +1,16 @@
 pub mod commands;
+pub mod format;
 pub mod output;
+pub mod selector;
 
 use crate::client::EurekaClient;
 use crate::config::AppConfig;
 use crate::error::Result;
 use clap::{Parser, Subcommand};
 use std::time::Duration;
+
+pub use format::OutputFormat;
+pub use selector::Selector;
 
 #[derive(Parser, Debug)]
 #[command(name = "eureka-cli")]
@@ -16,9 +21,25 @@ pub struct Cli {
     #[arg(short, long, env = "EUREKA_SERVER")]
     pub server: Option<String>,
 
-    /// Output format: json, yaml, table
-    #[arg(short, long, default_value = "table")]
-    pub output: String,
+    /// Output format: table, wide, json, yaml, jsonpath=<expr>
+    #[arg(short, long, default_value = "table", value_parser = clap::value_parser!(OutputFormat))]
+    pub output: OutputFormat,
+
+    /// Selector expression for filtering (e.g., status=UP,app=foo)
+    #[arg(short = 'l', long)]
+    pub selector: Option<String>,
+
+    /// Watch mode: continuously poll and refresh output
+    #[arg(short = 'w', long)]
+    pub watch: bool,
+
+    /// Watch interval in seconds (default: 2)
+    #[arg(long, default_value = "2")]
+    pub watch_interval: u64,
+
+    /// Sort output by field (e.g., status, ip_addr, instance_id)
+    #[arg(long)]
+    pub sort_by: Option<String>,
 
     /// Verbose output
     #[arg(short, long)]
@@ -122,19 +143,19 @@ impl Cli {
         let client = EurekaClient::new(server_url, timeout)?;
 
         match &self.command {
-            Commands::Apps { command } => command.execute(&client, &self.output).await,
-            Commands::Instances { command } => command.execute(&client, &self.output).await,
+            Commands::Apps { command } => command.execute(&client, self.output.as_legacy_str()).await,
+            Commands::Instances { command } => command.execute(&client, self.output.as_legacy_str()).await,
             Commands::Servers { .. } => unreachable!(), // Already handled above
             Commands::Register { args } => args.execute(&client).await,
-            Commands::Deregister { args } => args.execute(&client, &self.output).await,
-            Commands::Heartbeat { args } => args.execute(&client, &self.output).await,
+            Commands::Deregister { args } => args.execute(&client, self.output.as_legacy_str()).await,
+            Commands::Heartbeat { args } => args.execute(&client, self.output.as_legacy_str()).await,
             Commands::Status { command } => command.execute(&client).await,
             Commands::Metadata { command } => command.execute(&client).await,
-            Commands::Vip { command } => command.execute(&client, &self.output).await,
+            Commands::Vip { command } => command.execute(&client, self.output.as_legacy_str()).await,
             Commands::Version => {
                 output::print_success(
                     &format!("eureka-cli {}", env!("CARGO_PKG_VERSION")),
-                    &self.output,
+                    self.output.as_legacy_str(),
                 )?;
                 Ok(())
             }
