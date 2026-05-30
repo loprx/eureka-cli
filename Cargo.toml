@@ -42,6 +42,10 @@ dirs = "5.0"
 comfy-table = "7.1"
 colored = "2.1"
 
+# Unix signal handling for SIGPIPE
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [dev-dependencies]
 # Testing
 chrono = "0.4"

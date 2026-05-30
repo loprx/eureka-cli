@@ -1,7 +1,7 @@
 use crate::error::Result;
 use crate::models::*;
 use colored::Colorize;
-use comfy_table::{presets::NOTHING, Cell, ContentArrangement, Table};
+use comfy_table::{presets::NOTHING, Attribute, Cell, Color, ContentArrangement, Table};
 
 use super::format::OutputFormat;
 
@@ -72,7 +72,21 @@ impl TableFormatter {
         table
     }
 
-    fn status_cell(status: &InstanceStatus) -> String {
+    fn status_cell(status: &InstanceStatus) -> Cell {
+        // Use comfy-table's own styling so it computes width correctly.
+        // Returning a pre-colored String breaks alignment in NOTHING preset.
+        match status {
+            InstanceStatus::Up => Cell::new("UP").fg(Color::Green),
+            InstanceStatus::Down => Cell::new("DOWN").fg(Color::Red),
+            InstanceStatus::Starting => Cell::new("STARTING").fg(Color::Yellow),
+            InstanceStatus::OutOfService => Cell::new("OUT_OF_SERVICE").fg(Color::Red),
+            InstanceStatus::Unknown => Cell::new("UNKNOWN").add_attribute(Attribute::Dim),
+        }
+    }
+
+    /// Plain (uncolored) status string for use in describe output and other
+    /// non-table contexts where ANSI inflation doesn't matter.
+    fn status_str(status: &InstanceStatus) -> String {
         match status {
             InstanceStatus::Up => "UP".green().to_string(),
             InstanceStatus::Down => "DOWN".red().to_string(),
@@ -126,12 +140,12 @@ impl OutputFormatter for TableFormatter {
                     )
                 })
                 .count();
-            let status = if up == total && total > 0 {
-                "UP".green().to_string()
+            let status_cell = if up == total && total > 0 {
+                Cell::new("UP").fg(Color::Green)
             } else if up == 0 {
-                "DOWN".red().to_string()
+                Cell::new("DOWN").fg(Color::Red)
             } else {
-                format!("PARTIAL ({}/{})", up, total).yellow().to_string()
+                Cell::new(format!("PARTIAL ({}/{})", up, total)).fg(Color::Yellow)
             };
 
             if self.wide {
@@ -140,14 +154,10 @@ impl OutputFormatter for TableFormatter {
                     Cell::new(total),
                     Cell::new(up),
                     Cell::new(down),
-                    Cell::new(status),
+                    status_cell,
                 ]);
             } else {
-                table.add_row(vec![
-                    Cell::new(&app.name),
-                    Cell::new(total),
-                    Cell::new(status),
-                ]);
+                table.add_row(vec![Cell::new(&app.name), Cell::new(total), status_cell]);
             }
         }
 
@@ -202,7 +212,7 @@ impl OutputFormatter for TableFormatter {
                     Cell::new(&inst.host_name),
                     Cell::new(&inst.ip_addr),
                     Cell::new(port),
-                    Cell::new(Self::status_cell(&inst.status)),
+                    Self::status_cell(&inst.status),
                     Cell::new(vip),
                     Cell::new(Self::metadata_summary(inst)),
                 ]);
@@ -212,7 +222,7 @@ impl OutputFormatter for TableFormatter {
                     Cell::new(&inst.host_name),
                     Cell::new(&inst.ip_addr),
                     Cell::new(port),
-                    Cell::new(Self::status_cell(&inst.status)),
+                    Self::status_cell(&inst.status),
                 ]);
             }
         }
@@ -232,7 +242,7 @@ impl OutputFormatter for TableFormatter {
         out.push_str(&format!(
             "{:20}: {}\n",
             "Status",
-            Self::status_cell(&instance.status)
+            Self::status_str(&instance.status)
         ));
 
         if let Some(port) = &instance.port {
@@ -340,14 +350,14 @@ fn describe_instance(instance: &Instance) -> String {
     out.push_str(&format!(
         "  {:pad$}{}\n",
         "Status:",
-        TableFormatter::status_cell(&instance.status),
+        TableFormatter::status_str(&instance.status),
         pad = pad
     ));
     if let Some(overridden) = &instance.overriddenstatus {
         out.push_str(&format!(
             "  {:pad$}{}\n",
             "Overridden:",
-            TableFormatter::status_cell(overridden),
+            TableFormatter::status_str(overridden),
             pad = pad
         ));
     }

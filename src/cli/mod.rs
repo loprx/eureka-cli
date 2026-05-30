@@ -212,10 +212,20 @@ impl Cli {
 
 fn print_completion(shell: clap_complete::Shell) -> Result<()> {
     use clap::CommandFactory;
+    use std::io::Write;
+
     let mut cmd = Cli::command();
     let bin_name = cmd.get_name().to_string();
-    clap_complete::generate(shell, &mut cmd, bin_name, &mut std::io::stdout());
-    Ok(())
+
+    // Buffer the script so we can handle BrokenPipe (e.g. `… | head`) gracefully
+    // instead of letting clap_complete's internal unwrap turn it into a panic.
+    let mut buf: Vec<u8> = Vec::new();
+    clap_complete::generate(shell, &mut cmd, bin_name, &mut buf);
+    match std::io::stdout().write_all(&buf) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => Ok(()),
+        Err(e) => Err(e.into()),
+    }
 }
 
 #[cfg(test)]
