@@ -147,7 +147,7 @@ for i in $(seq 1 45); do
 done
 
 run_check "v02:selector finds new ID" "$ID" \
-    eureka-cli --server "$SERVER_URL" -l "app=$APP" -o "jsonpath=\$.instances[*].instanceId" instances list
+    eureka-cli --server "$SERVER_URL" -l "app=${APP^^}" -o "jsonpath=\$.instances[*].instanceId" instances list
 run_check "v02:metadata selector"     "$ID" \
     eureka-cli --server "$SERVER_URL" -l "metadata.client=$CLIENT" -o "jsonpath=\$.instances[*].instanceId" instances list
 

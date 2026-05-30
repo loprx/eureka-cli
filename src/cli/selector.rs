@@ -25,6 +25,11 @@ impl Selector {
     /// Parse selector expression from string
     /// Format: "key=value,key2!=value2"
     /// Supports nested fields: "metadata.version=v2"
+    ///
+    /// Note on case sensitivity: matching is exact. Eureka uppercases `app`
+    /// names server-side, so `-l app=foo` will not match a registered
+    /// "FOO" — use the actual stored value (`-l app=FOO`). Other fields
+    /// (status, metadata, ip_addr) preserve case as given.
     pub fn parse(expr: &str) -> Result<Self, String> {
         if expr.is_empty() {
             return Err("Empty selector expression".to_string());
