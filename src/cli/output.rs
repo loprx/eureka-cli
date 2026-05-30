@@ -25,17 +25,32 @@ pub trait OutputFormatter {
 /// Build the formatter for the requested output format.
 pub fn formatter_for(format: &OutputFormat) -> Box<dyn OutputFormatter> {
     match format {
-        OutputFormat::Table | OutputFormat::Wide => Box::new(TableFormatter),
+        OutputFormat::Table => Box::new(TableFormatter { wide: false }),
+        OutputFormat::Wide => Box::new(TableFormatter { wide: true }),
         OutputFormat::Json | OutputFormat::JsonPath(_) => Box::new(JsonFormatter),
         OutputFormat::Yaml => Box::new(YamlFormatter),
     }
+}
+
+/// Print any renderable resource using the trait. Generic over a closure so
+/// callers stay declarative — `print_with(fmt, |f| f.format_instances(&xs))`.
+pub fn print_with<F>(format: &OutputFormat, f: F) -> Result<()>
+where
+    F: FnOnce(&dyn OutputFormatter) -> Result<String>,
+{
+    let formatter = formatter_for(format);
+    println!("{}", f(formatter.as_ref())?);
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
 // TableFormatter — kubectl-style: no borders, space-aligned columns
 // ---------------------------------------------------------------------------
 
-struct TableFormatter;
+struct TableFormatter {
+    /// Wide mode adds extra columns (zone, vip, last_dirty, metadata summary).
+    wide: bool,
+}
 
 impl TableFormatter {
     fn new_table() -> Table {
@@ -54,12 +69,33 @@ impl TableFormatter {
             InstanceStatus::Unknown => "UNKNOWN".dimmed().to_string(),
         }
     }
+
+    fn metadata_summary(instance: &Instance) -> String {
+        let Some(map) = &instance.metadata else {
+            return "-".to_string();
+        };
+        if map.is_empty() {
+            return "-".to_string();
+        }
+        let mut keys: Vec<&String> = map.keys().collect();
+        keys.sort();
+        let preview: Vec<String> = keys.iter().take(3).map(|k| (*k).clone()).collect();
+        if keys.len() > 3 {
+            format!("{} (+{})", preview.join(","), keys.len() - 3)
+        } else {
+            preview.join(",")
+        }
+    }
 }
 
 impl OutputFormatter for TableFormatter {
     fn format_applications(&self, apps: &ApplicationsWrapper) -> Result<String> {
         let mut table = Self::new_table();
-        table.set_header(vec!["NAME", "INSTANCES", "STATUS"]);
+        if self.wide {
+            table.set_header(vec!["NAME", "INSTANCES", "UP", "DOWN", "STATUS"]);
+        } else {
+            table.set_header(vec!["NAME", "INSTANCES", "STATUS"]);
+        }
 
         for app in &apps.applications.apps {
             let total = app.instance.len();
@@ -67,6 +103,16 @@ impl OutputFormatter for TableFormatter {
                 .instance
                 .iter()
                 .filter(|i| matches!(i.status, InstanceStatus::Up))
+                .count();
+            let down = app
+                .instance
+                .iter()
+                .filter(|i| {
+                    matches!(
+                        i.status,
+                        InstanceStatus::Down | InstanceStatus::OutOfService
+                    )
+                })
                 .count();
             let status = if up == total && total > 0 {
                 "UP".green().to_string()
@@ -76,11 +122,21 @@ impl OutputFormatter for TableFormatter {
                 format!("PARTIAL ({}/{})", up, total).yellow().to_string()
             };
 
-            table.add_row(vec![
-                Cell::new(&app.name),
-                Cell::new(total),
-                Cell::new(status),
-            ]);
+            if self.wide {
+                table.add_row(vec![
+                    Cell::new(&app.name),
+                    Cell::new(total),
+                    Cell::new(up),
+                    Cell::new(down),
+                    Cell::new(status),
+                ]);
+            } else {
+                table.add_row(vec![
+                    Cell::new(&app.name),
+                    Cell::new(total),
+                    Cell::new(status),
+                ]);
+            }
         }
 
         Ok(table.to_string())
@@ -89,14 +145,31 @@ impl OutputFormatter for TableFormatter {
     fn format_application(&self, app: &Application) -> Result<String> {
         let mut out = String::new();
         out.push_str(&format!("{}: {}\n", "Application".bold(), app.name.cyan()));
-        out.push_str(&format!("{}: {}\n\n", "Instances".bold(), app.instance.len()));
+        out.push_str(&format!(
+            "{}: {}\n\n",
+            "Instances".bold(),
+            app.instance.len()
+        ));
         out.push_str(&self.format_instances(&app.instance)?);
         Ok(out)
     }
 
     fn format_instances(&self, instances: &[Instance]) -> Result<String> {
         let mut table = Self::new_table();
-        table.set_header(vec!["INSTANCE ID", "HOST", "IP", "PORT", "STATUS"]);
+        if self.wide {
+            table.set_header(vec![
+                "INSTANCE ID",
+                "APP",
+                "HOST",
+                "IP",
+                "PORT",
+                "STATUS",
+                "VIP",
+                "METADATA",
+            ]);
+        } else {
+            table.set_header(vec!["INSTANCE ID", "HOST", "IP", "PORT", "STATUS"]);
+        }
 
         for inst in instances {
             let port = inst
@@ -105,13 +178,31 @@ impl OutputFormatter for TableFormatter {
                 .map(|p| p.port.to_string())
                 .unwrap_or_else(|| "-".to_string());
 
-            table.add_row(vec![
-                Cell::new(&inst.instance_id),
-                Cell::new(&inst.host_name),
-                Cell::new(&inst.ip_addr),
-                Cell::new(port),
-                Cell::new(Self::status_cell(&inst.status)),
-            ]);
+            if self.wide {
+                let vip = if inst.vip_address.is_empty() {
+                    "-".to_string()
+                } else {
+                    inst.vip_address.clone()
+                };
+                table.add_row(vec![
+                    Cell::new(&inst.instance_id),
+                    Cell::new(&inst.app),
+                    Cell::new(&inst.host_name),
+                    Cell::new(&inst.ip_addr),
+                    Cell::new(port),
+                    Cell::new(Self::status_cell(&inst.status)),
+                    Cell::new(vip),
+                    Cell::new(Self::metadata_summary(inst)),
+                ]);
+            } else {
+                table.add_row(vec![
+                    Cell::new(&inst.instance_id),
+                    Cell::new(&inst.host_name),
+                    Cell::new(&inst.ip_addr),
+                    Cell::new(port),
+                    Cell::new(Self::status_cell(&inst.status)),
+                ]);
+            }
         }
 
         Ok(table.to_string())
@@ -135,7 +226,10 @@ impl OutputFormatter for TableFormatter {
         if let Some(port) = &instance.port {
             out.push_str(&format!("{:20}: {}\n", "Port", port.port));
         }
-        out.push_str(&format!("{:20}: {}\n", "Secure Port", instance.secure_port.port));
+        out.push_str(&format!(
+            "{:20}: {}\n",
+            "Secure Port", instance.secure_port.port
+        ));
         out.push_str(&format!("{:20}: {}\n", "VIP Address", instance.vip_address));
         out.push_str(&format!(
             "{:20}: {}\n",

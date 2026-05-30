@@ -1,5 +1,8 @@
+use crate::cli::output;
+use crate::cli::query::QueryOptions;
 use crate::client::EurekaClient;
 use crate::error::Result;
+use crate::models::{Instance, InstanceStatus};
 use clap::Subcommand;
 
 #[derive(Subcommand, Debug)]
@@ -15,20 +18,17 @@ pub enum InstancesCommands {
         #[arg(short, long)]
         app_id: Option<String>,
     },
+    /// List instances with non-UP status (shortcut for -l status!=UP)
+    Unhealthy,
 }
 
 impl InstancesCommands {
-    pub async fn execute(&self, client: &EurekaClient, output_format: &str) -> Result<()> {
+    pub async fn execute(&self, client: &EurekaClient, opts: &QueryOptions<'_>) -> Result<()> {
         match self {
             InstancesCommands::List => {
-                let apps = client.get_applications().await?;
-                let instances: Vec<_> = apps
-                    .applications
-                    .apps
-                    .iter()
-                    .flat_map(|app| app.instance.clone())
-                    .collect();
-                super::super::output::print_instances(&instances, output_format)?;
+                let mut instances = collect_all_instances(client).await?;
+                opts.refine(&mut instances);
+                output::print_with(opts.format, |f| f.format_instances(&instances))?;
                 Ok(())
             }
             InstancesCommands::Get {
@@ -40,9 +40,29 @@ impl InstancesCommands {
                 } else {
                     client.get_instance_by_id(instance_id).await?
                 };
-                super::super::output::print_instance(&instance, output_format)?;
+                output::print_with(opts.format, |f| f.format_instance(&instance))?;
+                Ok(())
+            }
+            InstancesCommands::Unhealthy => {
+                let mut instances: Vec<Instance> = collect_all_instances(client)
+                    .await?
+                    .into_iter()
+                    .filter(|i| !matches!(i.status, InstanceStatus::Up))
+                    .collect();
+                opts.refine(&mut instances);
+                output::print_with(opts.format, |f| f.format_instances(&instances))?;
                 Ok(())
             }
         }
     }
+}
+
+async fn collect_all_instances(client: &EurekaClient) -> Result<Vec<Instance>> {
+    let apps = client.get_applications().await?;
+    Ok(apps
+        .applications
+        .apps
+        .into_iter()
+        .flat_map(|a| a.instance)
+        .collect())
 }

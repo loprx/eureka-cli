@@ -102,10 +102,13 @@ fn get_field_value(json: &Value, field_path: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{InstanceStatus, Port, DataCenterInfo};
+    use crate::models::{DataCenterInfo, InstanceStatus, Port};
     use std::collections::HashMap;
 
-    fn create_test_instance(status: InstanceStatus, metadata: Option<HashMap<String, Value>>) -> Instance {
+    fn create_test_instance(
+        status: InstanceStatus,
+        metadata: Option<HashMap<String, Value>>,
+    ) -> Instance {
         Instance {
             instance_id: "test-instance".to_string(),
             host_name: "test-host".to_string(),
@@ -113,8 +116,14 @@ mod tests {
             ip_addr: "10.0.0.1".to_string(),
             status,
             overriddenstatus: None,
-            port: Some(Port { port: 8080, enabled: true }),
-            secure_port: Port { port: 8443, enabled: false },
+            port: Some(Port {
+                port: 8080,
+                enabled: true,
+            }),
+            secure_port: Port {
+                port: 8443,
+                enabled: false,
+            },
             country_id: None,
             home_page_url: None,
             status_page_url: None,

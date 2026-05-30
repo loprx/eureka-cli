@@ -56,12 +56,17 @@ mod tests {
 
     #[test]
     fn test_parse_output_format() {
-        assert_eq!("table".parse::<OutputFormat>().unwrap(), OutputFormat::Table);
+        assert_eq!(
+            "table".parse::<OutputFormat>().unwrap(),
+            OutputFormat::Table
+        );
         assert_eq!("wide".parse::<OutputFormat>().unwrap(), OutputFormat::Wide);
         assert_eq!("json".parse::<OutputFormat>().unwrap(), OutputFormat::Json);
         assert_eq!("yaml".parse::<OutputFormat>().unwrap(), OutputFormat::Yaml);
 
-        let jsonpath = "jsonpath={.instances[*].ipAddr}".parse::<OutputFormat>().unwrap();
+        let jsonpath = "jsonpath={.instances[*].ipAddr}"
+            .parse::<OutputFormat>()
+            .unwrap();
         assert!(matches!(jsonpath, OutputFormat::JsonPath(_)));
     }
 

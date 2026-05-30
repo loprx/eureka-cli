@@ -1,6 +1,7 @@
 pub mod commands;
 pub mod format;
 pub mod output;
+pub mod query;
 pub mod selector;
 
 use crate::client::EurekaClient;
@@ -143,15 +144,35 @@ impl Cli {
         let client = EurekaClient::new(server_url, timeout)?;
 
         match &self.command {
-            Commands::Apps { command } => command.execute(&client, self.output.as_legacy_str()).await,
-            Commands::Instances { command } => command.execute(&client, self.output.as_legacy_str()).await,
+            Commands::Apps { command } => {
+                let opts = query::QueryOptions::new(
+                    &self.output,
+                    self.selector.as_deref(),
+                    self.sort_by.clone(),
+                )?;
+                command.execute(&client, &opts).await
+            }
+            Commands::Instances { command } => {
+                let opts = query::QueryOptions::new(
+                    &self.output,
+                    self.selector.as_deref(),
+                    self.sort_by.clone(),
+                )?;
+                command.execute(&client, &opts).await
+            }
             Commands::Servers { .. } => unreachable!(), // Already handled above
             Commands::Register { args } => args.execute(&client).await,
-            Commands::Deregister { args } => args.execute(&client, self.output.as_legacy_str()).await,
-            Commands::Heartbeat { args } => args.execute(&client, self.output.as_legacy_str()).await,
+            Commands::Deregister { args } => {
+                args.execute(&client, self.output.as_legacy_str()).await
+            }
+            Commands::Heartbeat { args } => {
+                args.execute(&client, self.output.as_legacy_str()).await
+            }
             Commands::Status { command } => command.execute(&client).await,
             Commands::Metadata { command } => command.execute(&client).await,
-            Commands::Vip { command } => command.execute(&client, self.output.as_legacy_str()).await,
+            Commands::Vip { command } => {
+                command.execute(&client, self.output.as_legacy_str()).await
+            }
             Commands::Version => {
                 output::print_success(
                     &format!("eureka-cli {}", env!("CARGO_PKG_VERSION")),
