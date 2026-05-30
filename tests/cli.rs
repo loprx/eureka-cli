@@ -294,6 +294,40 @@ fn config_alias_does_not_emit_deprecation() {
     );
 }
 
+/// Short aliases users will actually type. Each pair must parse identically.
+/// If a clap_complete or visible_alias regression drops one, this catches it.
+#[test]
+fn short_aliases_parse() {
+    let cases: &[&[&str]] = &[
+        // describe -> desc
+        &["apps", "desc", "FOO"],
+        &["instances", "desc", "-a", "FOO", "BAR"],
+        // config -> cfg
+        &["cfg", "list"],
+        &["cfg", "current"],
+        &["cfg", "ls"],
+        // existing top-level aliases
+        &["a", "list"],   // apps
+        &["app", "list"], // apps
+        &["i", "list"],   // instances
+        &["inst", "list"],
+        // existing list aliases
+        &["apps", "ls"],
+        &["instances", "ls"],
+        &["config", "ls"],
+    ];
+    for case in cases {
+        let out = Command::new(bin()).args(*case).output().unwrap();
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(
+            !stderr.contains("unrecognized subcommand") && !stderr.contains("unexpected argument"),
+            "alias {:?} failed to parse:\n{}",
+            case,
+            stderr
+        );
+    }
+}
+
 /// Cross product of (apps subcommand) × (global flag placement). Exhaustive
 /// because this is the exact bug class users hit.
 #[test]

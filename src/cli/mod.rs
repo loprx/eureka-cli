@@ -88,6 +88,7 @@ pub enum Commands {
         command: commands::ServersCommands,
     },
     /// Manage server configurations (kubectl/kubeconfig style)
+    #[command(visible_alias = "cfg")]
     Config {
         #[command(subcommand)]
         command: commands::ServersCommands,
