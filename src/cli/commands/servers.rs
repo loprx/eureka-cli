@@ -2,7 +2,7 @@ use crate::config::AppConfig;
 use crate::error::Result;
 use clap::Subcommand;
 use colored::Colorize;
-use comfy_table::{presets::UTF8_FULL, Table};
+use comfy_table::{presets::NOTHING, Cell, ContentArrangement, Table};
 
 #[derive(Subcommand, Debug)]
 pub enum ServersCommands {
@@ -51,8 +51,9 @@ impl ServersCommands {
                 }
 
                 let mut table = Table::new();
-                table.load_preset(UTF8_FULL);
-                table.set_header(vec!["Name", "URL", "Description", "Default"]);
+                table.load_preset(NOTHING);
+                table.set_content_arrangement(ContentArrangement::Disabled);
+                table.set_header(vec!["NAME", "URL", "DESCRIPTION", "DEFAULT"]);
 
                 for server in servers {
                     let name = if server.is_default {
@@ -63,13 +64,13 @@ impl ServersCommands {
                     let default_mark = if server.is_default {
                         "✓".green().to_string()
                     } else {
-                        "".to_string()
+                        "-".to_string()
                     };
                     table.add_row(vec![
-                        name,
-                        server.url,
-                        server.description.unwrap_or_default(),
-                        default_mark,
+                        Cell::new(name),
+                        Cell::new(server.url),
+                        Cell::new(server.description.unwrap_or_else(|| "-".to_string())),
+                        Cell::new(default_mark),
                     ]);
                 }
 

@@ -20,47 +20,47 @@ pub use selector::Selector;
 pub struct Cli {
     /// Eureka server (name from config or direct URL)
     /// Examples: --server test1, --server http://localhost:8761/eureka
-    #[arg(short, long, env = "EUREKA_SERVER")]
+    #[arg(short, long, env = "EUREKA_SERVER", global = true)]
     pub server: Option<String>,
 
     /// Output format: table, wide, json, yaml, jsonpath=<expr>
-    #[arg(short, long, default_value = "table", value_parser = clap::value_parser!(OutputFormat))]
+    #[arg(short, long, default_value = "table", value_parser = clap::value_parser!(OutputFormat), global = true)]
     pub output: OutputFormat,
 
     /// Selector expression for filtering (e.g., status=UP,app=foo)
-    #[arg(short = 'l', long)]
+    #[arg(short = 'l', long, global = true)]
     pub selector: Option<String>,
 
     /// Watch mode: continuously poll and refresh output
-    #[arg(short = 'w', long)]
+    #[arg(short = 'w', long, global = true)]
     pub watch: bool,
 
     /// Watch interval in seconds (default: 2)
-    #[arg(long, default_value = "2")]
+    #[arg(long, default_value = "2", global = true)]
     pub watch_interval: u64,
 
     /// Sort output by field (e.g., status, ip_addr, instance_id)
-    #[arg(long)]
+    #[arg(long, global = true)]
     pub sort_by: Option<String>,
 
     /// Verbose output
-    #[arg(short, long)]
+    #[arg(short, long, global = true)]
     pub verbose: bool,
 
     /// Quiet mode
-    #[arg(short, long)]
+    #[arg(short, long, global = true)]
     pub quiet: bool,
 
     /// Request timeout in seconds
-    #[arg(long, default_value = "30")]
+    #[arg(long, default_value = "30", global = true)]
     pub timeout: u64,
 
     /// Config file path
-    #[arg(long)]
+    #[arg(long, global = true)]
     pub config: Option<String>,
 
     /// Profile to use
-    #[arg(short, long)]
+    #[arg(short, long, global = true)]
     pub profile: Option<String>,
 
     #[command(subcommand)]
@@ -216,4 +216,66 @@ fn print_completion(shell: clap_complete::Shell) -> Result<()> {
     let bin_name = cmd.get_name().to_string();
     clap_complete::generate(shell, &mut cmd, bin_name, &mut std::io::stdout());
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::Parser;
+
+    /// Regression: every global flag must be accepted both BEFORE and AFTER a
+    /// subcommand. Without `global = true` on the derive struct, kubectl-style
+    /// `eureka-cli instances ls -l ...` fails parsing — the exact bug a user hit
+    /// on v0.2.0-rc.
+    #[test]
+    fn global_flags_work_before_subcommand() {
+        Cli::try_parse_from(["eureka-cli", "-l", "status=UP", "instances", "list"]).unwrap();
+        Cli::try_parse_from(["eureka-cli", "-o", "wide", "instances", "list"]).unwrap();
+        Cli::try_parse_from(["eureka-cli", "--sort-by", "status", "instances", "list"]).unwrap();
+        Cli::try_parse_from(["eureka-cli", "-w", "instances", "list"]).unwrap();
+    }
+
+    #[test]
+    fn global_flags_work_after_subcommand() {
+        Cli::try_parse_from(["eureka-cli", "instances", "list", "-l", "status=UP"]).unwrap();
+        Cli::try_parse_from(["eureka-cli", "instances", "list", "-o", "wide"]).unwrap();
+        Cli::try_parse_from(["eureka-cli", "instances", "list", "--sort-by", "status"]).unwrap();
+        Cli::try_parse_from(["eureka-cli", "instances", "list", "-w"]).unwrap();
+    }
+
+    #[test]
+    fn global_flags_work_after_apps_subcommand() {
+        // apps has more subcommands; make sure `-l` lands on each list-style one.
+        Cli::try_parse_from(["eureka-cli", "apps", "list", "-l", "status=UP"]).unwrap();
+        Cli::try_parse_from(["eureka-cli", "apps", "list", "-o", "wide"]).unwrap();
+        Cli::try_parse_from(["eureka-cli", "apps", "instances", "FOO", "-l", "status=UP"]).unwrap();
+    }
+
+    #[test]
+    fn jsonpath_output_parses() {
+        let cli = Cli::try_parse_from([
+            "eureka-cli",
+            "instances",
+            "list",
+            "-o",
+            "jsonpath=$.instances[*].ipAddr",
+        ])
+        .unwrap();
+        assert!(matches!(cli.output, OutputFormat::JsonPath(_)));
+    }
+
+    #[test]
+    fn config_subcommand_alias_of_servers_parses() {
+        Cli::try_parse_from(["eureka-cli", "config", "list"]).unwrap();
+        Cli::try_parse_from(["eureka-cli", "config", "current"]).unwrap();
+        Cli::try_parse_from(["eureka-cli", "config", "use", "prod"]).unwrap();
+    }
+
+    #[test]
+    fn unhealthy_and_describe_subcommands_parse() {
+        Cli::try_parse_from(["eureka-cli", "apps", "unhealthy"]).unwrap();
+        Cli::try_parse_from(["eureka-cli", "instances", "unhealthy"]).unwrap();
+        Cli::try_parse_from(["eureka-cli", "apps", "describe", "FOO"]).unwrap();
+        Cli::try_parse_from(["eureka-cli", "instances", "describe", "-a", "FOO", "BAR"]).unwrap();
+    }
 }

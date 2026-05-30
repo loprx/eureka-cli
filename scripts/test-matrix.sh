@@ -102,17 +102,25 @@ run_ok    "apps list"          eureka-cli --server "$SERVER_URL" apps list
 run_check "apps list json"     '"applications"'  eureka-cli --server "$SERVER_URL" --output json apps list
 
 # --- v0.2 read-side (no preconditions, runs against whatever's registered) ---
-run_ok    "v02:apps wide"          eureka-cli --server "$SERVER_URL" -o wide apps list
-run_ok    "v02:instances wide"     eureka-cli --server "$SERVER_URL" -o wide instances list
-run_ok    "v02:selector status=UP" eureka-cli --server "$SERVER_URL" -l 'status=UP' instances list
-run_ok    "v02:selector !=UP"      eureka-cli --server "$SERVER_URL" -l 'status!=UP' instances list
-run_ok    "v02:sort-by status"     eureka-cli --server "$SERVER_URL" --sort-by status instances list
-run_ok    "v02:apps unhealthy"     eureka-cli --server "$SERVER_URL" apps unhealthy
+# Global flags must work both BEFORE and AFTER the subcommand (kubectl-style).
+# Without `global = true` on the clap derive struct, "instances ls -l ..."
+# fails with "unexpected argument '-l' found". Test both placements.
+run_ok    "v02:apps wide"           eureka-cli --server "$SERVER_URL" -o wide apps list
+run_ok    "v02:apps wide (post)"    eureka-cli --server "$SERVER_URL" apps list -o wide
+run_ok    "v02:instances wide"      eureka-cli --server "$SERVER_URL" -o wide instances list
+run_ok    "v02:instances wide (post)" eureka-cli --server "$SERVER_URL" instances list -o wide
+run_ok    "v02:selector status=UP"  eureka-cli --server "$SERVER_URL" -l 'status=UP' instances list
+run_ok    "v02:selector (post)"     eureka-cli --server "$SERVER_URL" instances list -l 'status=UP'
+run_ok    "v02:selector !=UP"       eureka-cli --server "$SERVER_URL" -l 'status!=UP' instances list
+run_ok    "v02:sort-by status"      eureka-cli --server "$SERVER_URL" --sort-by status instances list
+run_ok    "v02:sort-by (post)"      eureka-cli --server "$SERVER_URL" instances list --sort-by status
+run_ok    "v02:apps unhealthy"      eureka-cli --server "$SERVER_URL" apps unhealthy
 run_ok    "v02:instances unhealthy" eureka-cli --server "$SERVER_URL" instances unhealthy
-run_ok    "v02:jsonpath array"     eureka-cli --server "$SERVER_URL" -o 'jsonpath=$.instances[*].instanceId' instances list
-run_check "v02:config ls header"   "Name|name"   eureka-cli config list
-run_ok    "v02:completion bash"    eureka-cli completion bash
-run_ok    "v02:completion zsh"     eureka-cli completion zsh
+run_ok    "v02:jsonpath array"      eureka-cli --server "$SERVER_URL" -o 'jsonpath=$.instances[*].instanceId' instances list
+run_ok    "v02:jsonpath (post)"     eureka-cli --server "$SERVER_URL" instances list -o 'jsonpath=$.instances[*].instanceId'
+run_check "v02:config ls header"    "Name|name"   eureka-cli config list
+run_ok    "v02:completion bash"     eureka-cli completion bash
+run_ok    "v02:completion zsh"      eureka-cli completion zsh
 
 run_check "register"           "registered successfully" \
     eureka-cli --server "$SERVER_URL" register \
