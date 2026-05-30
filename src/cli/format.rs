@@ -74,4 +74,28 @@ mod tests {
     fn test_invalid_format() {
         assert!("invalid".parse::<OutputFormat>().is_err());
     }
+
+    #[test]
+    fn test_jsonpath_expr_preserved() {
+        let f = "jsonpath=$.instances[*].ipAddr"
+            .parse::<OutputFormat>()
+            .unwrap();
+        match f {
+            OutputFormat::JsonPath(expr) => assert_eq!(expr, "$.instances[*].ipAddr"),
+            other => panic!("expected JsonPath, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_jsonpath_empty_expr_still_parses() {
+        // Empty expr is technically valid syntax; jsonpath-rust will reject it
+        // at evaluation time. Parser stage doesn't validate.
+        let f = "jsonpath=".parse::<OutputFormat>().unwrap();
+        assert!(matches!(f, OutputFormat::JsonPath(s) if s.is_empty()));
+    }
+
+    #[test]
+    fn test_default_is_table() {
+        assert_eq!(OutputFormat::default(), OutputFormat::Table);
+    }
 }

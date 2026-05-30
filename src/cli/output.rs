@@ -306,7 +306,7 @@ impl OutputFormatter for TableFormatter {
 /// Pure function: no I/O, deterministic, easy to unit-test.
 fn describe_instance(instance: &Instance) -> String {
     let mut out = String::new();
-    let pad = 22;
+    let pad = 24;
 
     // Identity
     out.push_str(&format!("{}\n", "Identity:".bold()));
@@ -607,4 +607,112 @@ pub fn print_success(message: &str, format: &str) -> Result<()> {
     let f = formatter_for(&format_from_legacy_str(format));
     println!("{}", f.format_success(message)?);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    fn instance_fixture(id: &str, status: InstanceStatus) -> Instance {
+        let mut metadata = HashMap::new();
+        metadata.insert("version".to_string(), serde_json::json!("v2"));
+        metadata.insert("zone".to_string(), serde_json::json!("us-east-1"));
+        Instance {
+            instance_id: id.to_string(),
+            host_name: "host-1".to_string(),
+            app: "TEST-APP".to_string(),
+            ip_addr: "10.0.0.1".to_string(),
+            status,
+            overriddenstatus: None,
+            port: Some(Port {
+                port: 8080,
+                enabled: true,
+            }),
+            secure_port: Port {
+                port: 8443,
+                enabled: false,
+            },
+            country_id: None,
+            home_page_url: Some("http://10.0.0.1:8080/".to_string()),
+            status_page_url: None,
+            health_check_url: None,
+            vip_address: "test-vip".to_string(),
+            secure_vip_address: "test-svip".to_string(),
+            data_center_info: DataCenterInfo::default(),
+            lease_info: None,
+            metadata: Some(metadata),
+            last_updated_timestamp: None,
+            last_dirty_timestamp: None,
+            action_type: None,
+            is_coordinating_discovery_server: None,
+        }
+    }
+
+    #[test]
+    fn table_default_has_no_app_column() {
+        let f = formatter_for(&OutputFormat::Table);
+        let inst = instance_fixture("i-1", InstanceStatus::Up);
+        let out = f.format_instances(&[inst]).unwrap();
+        // narrow table: INSTANCE ID / HOST / IP / PORT / STATUS — no APP column
+        assert!(out.contains("INSTANCE ID"));
+        assert!(out.contains("STATUS"));
+        assert!(!out.contains("APP "));
+        assert!(!out.contains("VIP"));
+    }
+
+    #[test]
+    fn wide_table_adds_app_vip_metadata_columns() {
+        let f = formatter_for(&OutputFormat::Wide);
+        let inst = instance_fixture("i-1", InstanceStatus::Up);
+        let out = f.format_instances(&[inst]).unwrap();
+        assert!(out.contains("APP"));
+        assert!(out.contains("VIP"));
+        assert!(out.contains("METADATA"));
+    }
+
+    #[test]
+    fn describe_emits_kubectl_style_sections() {
+        let f = formatter_for(&OutputFormat::Table);
+        let inst = instance_fixture("i-1", InstanceStatus::Up);
+        let out = f.format_describe_instance(&inst).unwrap();
+        for section in &[
+            "Identity:",
+            "Status:",
+            "Network:",
+            "DataCenter:",
+            "Metadata:",
+        ] {
+            assert!(
+                out.contains(section),
+                "missing section {} in:\n{}",
+                section,
+                out
+            );
+        }
+        // Pad >= 24 means "Instance ID:" (12) and any other short label has at
+        // least 12 spaces of padding before the value — easy to scan.
+        assert!(out.contains("Instance ID:"));
+    }
+
+    #[test]
+    fn jsonpath_formatter_extracts_array() {
+        let f = formatter_for(&OutputFormat::JsonPath("$.instances[*].ipAddr".to_string()));
+        let inst1 = instance_fixture("i-1", InstanceStatus::Up);
+        let mut inst2 = instance_fixture("i-2", InstanceStatus::Down);
+        inst2.ip_addr = "10.0.0.2".to_string();
+        let out = f.format_instances(&[inst1, inst2]).unwrap();
+        // JsonPath formatter prints one match per line for pipe friendliness.
+        let lines: Vec<&str> = out.lines().collect();
+        assert_eq!(lines.len(), 2);
+        assert!(out.contains("10.0.0.1"));
+        assert!(out.contains("10.0.0.2"));
+    }
+
+    #[test]
+    fn jsonpath_formatter_invalid_expr_returns_error() {
+        let f = formatter_for(&OutputFormat::JsonPath("$..[malformed".to_string()));
+        let inst = instance_fixture("i-1", InstanceStatus::Up);
+        assert!(f.format_instances(&[inst]).is_err());
+    }
 }
