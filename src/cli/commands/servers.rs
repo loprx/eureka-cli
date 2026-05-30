@@ -2,7 +2,7 @@ use crate::config::AppConfig;
 use crate::error::Result;
 use clap::Subcommand;
 use colored::Colorize;
-use comfy_table::{presets::UTF8_FULL, Table};
+use comfy_table::{presets::NOTHING, Attribute, Cell, Color, ContentArrangement, Table};
 
 #[derive(Subcommand, Debug)]
 pub enum ServersCommands {
@@ -51,25 +51,27 @@ impl ServersCommands {
                 }
 
                 let mut table = Table::new();
-                table.load_preset(UTF8_FULL);
-                table.set_header(vec!["Name", "URL", "Description", "Default"]);
+                table.load_preset(NOTHING);
+                table.set_content_arrangement(ContentArrangement::Disabled);
+                table.set_header(vec!["NAME", "URL", "DESCRIPTION", "DEFAULT"]);
 
                 for server in servers {
-                    let name = if server.is_default {
-                        server.name.green().bold().to_string()
+                    let mut name_cell = Cell::new(&server.name);
+                    let mut default_cell = if server.is_default {
+                        Cell::new("✓")
                     } else {
-                        server.name
+                        Cell::new("-")
                     };
-                    let default_mark = if server.is_default {
-                        "✓".green().to_string()
-                    } else {
-                        "".to_string()
-                    };
+                    if server.is_default {
+                        name_cell = name_cell.fg(Color::Green).add_attribute(Attribute::Bold);
+                        default_cell = default_cell.fg(Color::Green);
+                    }
+
                     table.add_row(vec![
-                        name,
-                        server.url,
-                        server.description.unwrap_or_default(),
-                        default_mark,
+                        name_cell,
+                        Cell::new(server.url),
+                        Cell::new(server.description.unwrap_or_else(|| "-".to_string())),
+                        default_cell,
                     ]);
                 }
 

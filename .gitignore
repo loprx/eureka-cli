@@ -30,7 +30,6 @@ build/
 
 # Local-only deployment and testing assets
 /docker/
-tests/
 .claude
 .ignore/
 eureka-server/**/target/

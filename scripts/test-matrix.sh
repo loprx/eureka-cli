@@ -1,18 +1,24 @@
 #!/usr/bin/env bash
 # Compatibility matrix: N client hosts × M Eureka servers
-# Each round runs ALL CLI commands (register, heartbeat, status, metadata, deregister)
+# Each round runs ALL CLI commands (v0.1 lifecycle + v0.2 ops queries).
 
 set -uo pipefail
 
 CLIENTS="${CLIENTS:-host1.example.com host2.example.com host3.example.com}"
 
-# label|url — customize these for your environment
-SERVERS=(
-    "eureka-a|http://192.168.1.100:8761/eureka"
-    "eureka-b|http://192.168.1.101:8761/eureka"
-    "test-1.10|http://192.168.1.102:8761/eureka"
-    "test-2.0|http://192.168.1.102:8762/eureka"
-)
+# label|url — override via env for your environment, e.g.:
+#   SERVERS_OVERRIDE='prod|http://10.0.0.1:8761/eureka,test|http://10.0.0.2:8761/eureka' ./test-matrix.sh
+# Falls back to the placeholder set below if SERVERS_OVERRIDE is unset.
+if [ -n "${SERVERS_OVERRIDE:-}" ]; then
+    IFS=',' read -r -a SERVERS <<< "$SERVERS_OVERRIDE"
+else
+    SERVERS=(
+        "eureka-a|http://192.168.1.100:8761/eureka"
+        "eureka-b|http://192.168.1.101:8761/eureka"
+        "test-1.10|http://192.168.1.102:8761/eureka"
+        "test-2.0|http://192.168.1.102:8762/eureka"
+    )
+fi
 
 SSH_USER="${SSH_USER:-root}"
 
@@ -95,6 +101,27 @@ run_check "version"            "eureka-cli"      eureka-cli version
 run_ok    "apps list"          eureka-cli --server "$SERVER_URL" apps list
 run_check "apps list json"     '"applications"'  eureka-cli --server "$SERVER_URL" --output json apps list
 
+# --- v0.2 read-side (no preconditions, runs against whatever's registered) ---
+# Global flags must work both BEFORE and AFTER the subcommand (kubectl-style).
+# Without `global = true` on the clap derive struct, "instances ls -l ..."
+# fails with "unexpected argument '-l' found". Test both placements.
+run_ok    "v02:apps wide"           eureka-cli --server "$SERVER_URL" -o wide apps list
+run_ok    "v02:apps wide (post)"    eureka-cli --server "$SERVER_URL" apps list -o wide
+run_ok    "v02:instances wide"      eureka-cli --server "$SERVER_URL" -o wide instances list
+run_ok    "v02:instances wide (post)" eureka-cli --server "$SERVER_URL" instances list -o wide
+run_ok    "v02:selector status=UP"  eureka-cli --server "$SERVER_URL" -l 'status=UP' instances list
+run_ok    "v02:selector (post)"     eureka-cli --server "$SERVER_URL" instances list -l 'status=UP'
+run_ok    "v02:selector !=UP"       eureka-cli --server "$SERVER_URL" -l 'status!=UP' instances list
+run_ok    "v02:sort-by status"      eureka-cli --server "$SERVER_URL" --sort-by status instances list
+run_ok    "v02:sort-by (post)"      eureka-cli --server "$SERVER_URL" instances list --sort-by status
+run_ok    "v02:apps unhealthy"      eureka-cli --server "$SERVER_URL" apps unhealthy
+run_ok    "v02:instances unhealthy" eureka-cli --server "$SERVER_URL" instances unhealthy
+run_ok    "v02:jsonpath array"      eureka-cli --server "$SERVER_URL" -o 'jsonpath=$.instances[*].instanceId' instances list
+run_ok    "v02:jsonpath (post)"     eureka-cli --server "$SERVER_URL" instances list -o 'jsonpath=$.instances[*].instanceId'
+run_check "v02:config ls header"    "Name|name"   eureka-cli config list
+run_ok    "v02:completion bash"     eureka-cli completion bash
+run_ok    "v02:completion zsh"      eureka-cli completion zsh
+
 run_check "register"           "registered successfully" \
     eureka-cli --server "$SERVER_URL" register \
         --app "$APP" --instance-id "$ID" \
@@ -112,6 +139,26 @@ for i in $(seq 1 30); do
 done
 
 run_check "apps get"           "\"$ID\""   eureka-cli --server "$SERVER_URL" --output json apps get "$APP"
+
+# --- v0.2 write-then-read: verify selector/describe/jsonpath actually find the instance ---
+run_check "v02:apps describe"     "Name:"      eureka-cli --server "$SERVER_URL" apps describe "$APP"
+run_check "v02:instance describe" "Identity:"  eureka-cli --server "$SERVER_URL" instances describe -a "$APP" "$ID"
+
+# instances list / unhealthy go through Eureka's /apps cache (~30s). Wait for visibility there.
+echo -n "  waiting for /apps cache..."
+for i in $(seq 1 45); do
+    if eureka-cli --server "$SERVER_URL" --output json instances list 2>/dev/null | grep -qF "\"$ID\""; then
+        echo " ${i}s"
+        break
+    fi
+    sleep 1
+done
+
+run_check "v02:selector finds new ID" "$ID" \
+    eureka-cli --server "$SERVER_URL" -l "app=${APP^^}" -o "jsonpath=\$.instances[*].instanceId" instances list
+run_check "v02:metadata selector"     "$ID" \
+    eureka-cli --server "$SERVER_URL" -l "metadata.client=$CLIENT" -o "jsonpath=\$.instances[*].instanceId" instances list
+
 run_check "heartbeat"          "Heartbeat sent"  eureka-cli --server "$SERVER_URL" heartbeat "$APP" "$ID"
 run_check "status set"         "updated"   eureka-cli --server "$SERVER_URL" status set "$APP" "$ID" OUT_OF_SERVICE
 sleep 1
